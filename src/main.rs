@@ -27,7 +27,6 @@ struct App<R> {
 
 impl<R: Read> App<R> {
     fn new(source: BufReader<R>) -> App<R> {
-        enable_raw_mode().unwrap();
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture).unwrap();
 
@@ -107,7 +106,10 @@ fn main() -> std::io::Result<()> {
     let mut app: App<TcpStream> = App::new(BufReader::new(stream));
 
     loop {
-        app.update();
+        match app.update() {
+            Err(val) => println!("OMG"),
+            _ => {}
+        }
     }
 
     Ok(())
