@@ -11,7 +11,14 @@ use tui::{
     symbols,
     text::Span,
     Terminal,
-};  
+};
+
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+
 struct App<R> {
     data: VecDeque<Vec<f64>>,
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
@@ -20,9 +27,13 @@ struct App<R> {
 
 impl<R: Read> App<R> {
     fn new(source: BufReader<R>) -> App<R> {
+        enable_raw_mode().unwrap();
+        let mut stdout = io::stdout();
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture).unwrap();
+
         App {
             data: VecDeque::with_capacity(200),
-            terminal: Terminal::new(CrosstermBackend::new(io::stdout())).unwrap(),
+            terminal: Terminal::new(CrosstermBackend::new(stdout)).unwrap(),
             source
         }
     }
@@ -55,7 +66,6 @@ impl<R: Read> App<R> {
 
         let datasets = vec![
             Dataset::default()
-                .name("Some dataset")
                 .marker(symbols::Marker::Braille)
                 .graph_type(GraphType::Line)
                 .style(Style::default().fg(Color::Magenta))
@@ -65,12 +75,12 @@ impl<R: Read> App<R> {
         self.terminal.draw(|f| {
             let size = f.size();
             let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(1)
+                .direction(Direction::Horizontal)
+                .margin(0)
                 .constraints(
                     [
                         Constraint::Percentage(100),
-                    ].as_ref()
+                    ] .as_ref()
                 )
                 .split(f.size()); 
 
@@ -79,8 +89,8 @@ impl<R: Read> App<R> {
                 .x_axis(Axis::default()
                     .title(Span::styled("X Axis", Style::default().fg(Color::Red)))
                     .style(Style::default().fg(Color::White))
-                    .bounds([-100.0, 100.0])
-                    .labels(["0.0", "5.0", "10.0"].iter().cloned().map(Span::from).collect()))
+                    .bounds([0.0, 200.0])
+                    .labels(["0.0", "100.0", "200.0"].iter().cloned().map(Span::from).collect()))
                 .y_axis(Axis::default()
                     .title(Span::styled("Y Axis", Style::default().fg(Color::Red)))
                     .style(Style::default().fg(Color::White))
