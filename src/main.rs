@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use std::io::prelude::*;
 use std::net::TcpStream;
 use std::collections::VecDeque;
@@ -20,24 +21,36 @@ use crossterm::{
 };
 
 struct App<R> {
-    data: VecDeque<Vec<f64>>,
+    data: Vec<Vec<(f64, f64)>>,
+    index: u32,
+    num_readings: u32,
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
     source: BufReader<R>
 }
 
 impl<R: Read> App<R> {
     fn new(source: BufReader<R>) -> App<R> {
+        let num_readings = 200;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture).unwrap();
 
         App {
-            data: VecDeque::with_capacity(200),
+            index: 0,
+            data: Vec::new(),
             terminal: Terminal::new(CrosstermBackend::new(stdout)).unwrap(),
+            num_readings,
             source
         }
     }
 
-    fn update(&mut self) -> std::io::Result<()> {
+    fn init(&mut self) -> Result<()> {
+        for _ in self.read_stream()? {
+            self.data.push(Vec::new());
+        }
+        Ok(())
+    }
+
+    fn read_stream(&mut self) -> Result<Vec<f64>> {
         let mut line = String::new();
         let len = self.source.read_line(&mut line)?;
 
@@ -47,29 +60,45 @@ impl<R: Read> App<R> {
                 .filter(|s| !s.is_empty())
                 .map(|s| s.parse().unwrap())
                 .collect();
-
-            if self.data.len() == 200 { 
-                self.data.pop_front();
-            }
-            self.data.push_back(values);
-            self.draw();
+            return Ok(values)
         }
-        Ok(())
+        Err(anyhow!("Can't read!"))
+    }
+
+    fn update(&mut self) -> Result<()> {
+        let mut line = String::new();
+        let len = self.source.read_line(&mut line)?;
+
+        match self.read_stream() {
+            Ok(values) => {
+                for (i, val) in values.iter().enumerate() {
+                    if self.data[i].len() == self.num_readings as usize { 
+                        self.data[i].remove(0);
+                    }
+                    self.data[i].push((self.index as f64, *val));
+                    self.index += 1;
+                }
+                self.draw();
+            },
+            Err(_) => {}
+        };
+        Ok(()) 
     }
 
     fn draw(&mut self) {
-        let points: Vec<(f64, f64)> = self.data.iter()
-            .enumerate()
-            .map(|(i, data)| (i as f64, data[0] as f64))
-            .collect();
-
-        let datasets = vec![
+        let datasets: Vec<Dataset> = self.data.iter().map(|dataset| {
             Dataset::default()
                 .marker(symbols::Marker::Braille)
                 .graph_type(GraphType::Line)
                 .style(Style::default().fg(Color::Magenta))
-                .data(&points),
-        ];
+                .data(&dataset)
+        }).collect();
+
+        let bounds = if self.index < self.num_readings {
+            [0.0, 200.0]
+        } else {
+            [(self.index - self.num_readings) as f64, self.index as f64]
+        };
 
         self.terminal.draw(|f| {
             let size = f.size();
@@ -88,7 +117,7 @@ impl<R: Read> App<R> {
                 .x_axis(Axis::default()
                     .title(Span::styled("X Axis", Style::default().fg(Color::Red)))
                     .style(Style::default().fg(Color::White))
-                    .bounds([0.0, 200.0])
+                    .bounds(bounds)
                     .labels(["0.0", "100.0", "200.0"].iter().cloned().map(Span::from).collect()))
                 .y_axis(Axis::default()
                     .title(Span::styled("Y Axis", Style::default().fg(Color::Red)))
@@ -101,10 +130,11 @@ impl<R: Read> App<R> {
     }
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<()> {
     let stream = TcpStream::connect("127.0.0.1:5000")?;
     let mut app: App<TcpStream> = App::new(BufReader::new(stream));
 
+    app.init();
     loop {
         match app.update() {
             Err(val) => println!("OMG"),
